@@ -1,0 +1,91 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Create App Bundle
+        run: |
+          APP_NAME="KiroMeter"
+          BUNDLE_DIR="KiroMeter.app"
+          CONTENTS_DIR="${BUNDLE_DIR}/Contents"
+          MACOS_DIR="${CONTENTS_DIR}/MacOS"
+          
+          mkdir -p "${MACOS_DIR}"
+          cp ".build/release/${APP_NAME}" "${MACOS_DIR}/${APP_NAME}"
+          
+          cat > "${CONTENTS_DIR}/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>KiroMeter</string>
+              <key>CFBundleIdentifier</key>
+              <string>dev.kirometer.app</string>
+              <key>CFBundleName</key>
+              <string>KiroMeter</string>
+              <key>CFBundleDisplayName</key>
+              <string>KiroMeter</string>
+              <key>CFBundleVersion</key>
+              <string>1</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create ZIP
+        run: zip -r KiroMeter-macOS.zip KiroMeter.app
+
+      - name: Run Tests
+        run: swift test --enable-swift-testing --disable-xctest
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KiroMeter-macOS
+          path: KiroMeter-macOS.zip
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: KiroMeter-macOS.zip
+          body: |
+            ## KiroMeter ${{ github.ref_name }}
+            
+            macOS menu bar app for Kiro credit usage monitoring.
+            
+            ### Installation
+            1. Download `KiroMeter-macOS.zip`
+            2. Unzip and move `KiroMeter.app` to `/Applications`
+            3. Right-click → Open (first time, to bypass Gatekeeper)
+            
+            ### Prerequisites
+            - macOS 14 (Sonoma) or later
+            - [Kiro CLI](https://kiro.dev) installed and logged in (`kiro-cli login`)
+          draft: false
+          prerelease: false
