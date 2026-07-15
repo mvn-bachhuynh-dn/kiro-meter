@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotificationObservers()
         startObservingViewModel()
 
+        // Ensure bare agent config exists for optimized CLI calls
+        BareAgentEnsurer.ensureExists()
+
         // Launch at login
         LaunchAtLogin.sync(shouldEnable: settings.launchAtLogin)
 
