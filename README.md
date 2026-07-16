@@ -1,6 +1,7 @@
 # KiroMeter
 
 macOS menu bar app that displays your Kiro credit usage percentage.
+
 <img width="289" height="259" alt="image" src="https://github.com/user-attachments/assets/0b0e0509-1d51-4961-be53-8b72b6ddaaed" />
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue)
