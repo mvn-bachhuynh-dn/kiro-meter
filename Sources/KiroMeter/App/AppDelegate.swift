@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let viewModel = UsageViewModel()
     private let scheduler = RefreshScheduler()
     private let thresholdEvaluator = ThresholdEvaluator()
+    private let updateChecker = UpdateChecker()
     private var observationTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Initial fetch
         viewModel.refresh()
         scheduler.recordManualRefresh()
+
+        // Check for updates
+        updateChecker.checkIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -50,10 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPopover() {
         popover = NSPopover()
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.contentSize = NSSize(width: 300, height: 300)
         popover.contentViewController = NSHostingController(
-            rootView: UsageDetailView(viewModel: viewModel)
+            rootView: UsageDetailView(viewModel: viewModel, updateChecker: updateChecker)
         )
     }
 
@@ -62,6 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(openSettings),
             name: .openSettings,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidResignActive),
+            name: NSApplication.didResignActiveNotification,
             object: nil
         )
     }
@@ -81,6 +91,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+        }
+    }
+
+    @objc private func appDidResignActive() {
+        if popover.isShown {
+            popover.performClose(nil)
         }
     }
 

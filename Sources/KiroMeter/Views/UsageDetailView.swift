@@ -2,10 +2,17 @@ import SwiftUI
 
 struct UsageDetailView: View {
     @Bindable var viewModel: UsageViewModel
+    var updateChecker: UpdateChecker
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             headerSection
+
+            // Update available banner
+            if updateChecker.shouldShowUpdateBanner {
+                updateBanner
+            }
+
             Divider()
             if let snapshot = viewModel.snapshot {
                 creditsSection(snapshot)
@@ -166,6 +173,10 @@ struct UsageDetailView: View {
 
             Spacer()
 
+            Text("v\(UpdateChecker.currentVersion)")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
             Button {
                 NotificationCenter.default.post(name: .openSettings, object: nil)
             } label: {
@@ -178,6 +189,34 @@ struct UsageDetailView: View {
             }
         }
         .controlSize(.small)
+    }
+
+    private var updateBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(.blue)
+                .font(.body)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("v\(updateChecker.latestVersion ?? "") available")
+                    .font(.caption.bold())
+                if let url = updateChecker.downloadURL,
+                   let downloadURL = URL(string: url) {
+                    Link("Download", destination: downloadURL)
+                        .font(.caption)
+                }
+            }
+            Spacer()
+            Button {
+                updateChecker.dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss this update")
+        }
+        .padding(8)
+        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Helpers
