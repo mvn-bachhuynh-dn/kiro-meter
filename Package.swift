@@ -9,10 +9,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "KiroMeter",
-            path: "Sources/KiroMeter",
-            swiftSettings: [
-                .enableUpcomingFeature("StrictConcurrency"),
-            ]
+            path: "Sources/KiroMeter"
         ),
         .testTarget(
             name: "KiroMeterTests",
