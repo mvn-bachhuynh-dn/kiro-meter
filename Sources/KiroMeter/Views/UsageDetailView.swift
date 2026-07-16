@@ -173,7 +173,7 @@ struct UsageDetailView: View {
 
             Spacer()
 
-            Text("v\(UpdateChecker.currentVersion)")
+            Text(AppInfo.displayVersion)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
@@ -197,9 +197,9 @@ struct UsageDetailView: View {
                 .foregroundStyle(.blue)
                 .font(.body)
             VStack(alignment: .leading, spacing: 2) {
-                Text("v\(updateChecker.latestVersion ?? "") available")
+                Text("v\(updateChecker.availableVersion ?? "") available")
                     .font(.caption.bold())
-                if let url = updateChecker.downloadURL,
+                if let url = updateChecker.availableURL,
                    let downloadURL = URL(string: url) {
                     Link("Download", destination: downloadURL)
                         .font(.caption)
@@ -207,7 +207,7 @@ struct UsageDetailView: View {
             }
             Spacer()
             Button {
-                updateChecker.dismiss()
+                updateChecker.dismissBanner()
             } label: {
                 Image(systemName: "xmark")
                     .font(.caption2)

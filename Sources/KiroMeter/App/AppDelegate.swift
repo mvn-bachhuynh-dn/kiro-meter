@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduler.recordManualRefresh()
 
         // Check for updates
-        updateChecker.checkIfNeeded()
+        updateChecker.checkAutomaticallyIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let settingsView = SettingsView(settings: settings)
+        let settingsView = SettingsView(settings: settings, updateChecker: updateChecker)
         let hostingController = NSHostingController(rootView: settingsView)
         let window = NSWindow(contentViewController: hostingController)
         window.title = "KiroMeter Settings"

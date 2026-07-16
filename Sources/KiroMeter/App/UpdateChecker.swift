@@ -1,51 +1,101 @@
 import Foundation
 
 /// Checks GitHub releases for new versions of KiroMeter.
+///
+/// This is a lightweight, GitHub-Releases-based updater suitable for an
+/// unsigned app. It detects newer versions and points the user to the
+/// download page. (For true in-app auto-install you'd migrate to Sparkle,
+/// which requires code signing + notarization + a signed appcast feed.)
 @MainActor
 @Observable
 final class UpdateChecker {
-    static let currentVersion = "1.1.0"
     private static let repoOwner = "mvn-bachhuynh-dn"
     private static let repoName = "kiro-meter"
-    private static let checkInterval: TimeInterval = 6 * 3600 // 6 hours
+    private static let autoCheckInterval: TimeInterval = 6 * 3600 // 6 hours
 
-    var latestVersion: String?
-    var downloadURL: String?
-    var isUpdateAvailable: Bool { latestVersion != nil && latestVersion != Self.currentVersion && isNewer(latestVersion!) }
+    /// The version this build reports (single source of truth).
+    static var currentVersion: String { AppInfo.version }
+
+    /// Update-check lifecycle state.
+    enum State: Equatable {
+        case idle
+        case checking
+        case upToDate
+        case updateAvailable(version: String, url: String)
+        case failed(String)
+    }
+
+    private(set) var state: State = .idle
+
+    // MARK: - Persisted settings
+
+    /// Whether background auto-checking is enabled.
+    var autoCheckEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: "autoCheckUpdates") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoCheckUpdates") }
+    }
 
     private var lastCheckDate: Date? {
         get { UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date }
         set { UserDefaults.standard.set(newValue, forKey: "lastUpdateCheck") }
     }
 
-    var dismissedVersion: String? {
+    private var dismissedVersion: String? {
         get { UserDefaults.standard.string(forKey: "dismissedUpdateVersion") }
         set { UserDefaults.standard.set(newValue, forKey: "dismissedUpdateVersion") }
     }
 
-    /// Whether to show the update banner (not dismissed for this version).
-    var shouldShowUpdateBanner: Bool {
-        isUpdateAvailable && latestVersion != dismissedVersion
+    // MARK: - Derived
+
+    /// The available newer version, if any.
+    var availableVersion: String? {
+        if case let .updateAvailable(version, _) = state { return version }
+        return nil
     }
 
-    /// Check for updates if enough time has passed since last check.
-    func checkIfNeeded() {
-        if let last = lastCheckDate, Date().timeIntervalSince(last) < Self.checkInterval {
+    /// The download URL for the available update, if any.
+    var availableURL: String? {
+        if case let .updateAvailable(_, url) = state { return url }
+        return nil
+    }
+
+    /// Whether to show the update banner in the popover (available and not dismissed).
+    var shouldShowUpdateBanner: Bool {
+        guard let version = availableVersion else { return false }
+        return version != dismissedVersion
+    }
+
+    // MARK: - Public API
+
+    /// Background check honoring the auto-check toggle and interval throttle.
+    func checkAutomaticallyIfNeeded() {
+        guard autoCheckEnabled else { return }
+        if let last = lastCheckDate, Date().timeIntervalSince(last) < Self.autoCheckInterval {
             return
         }
-        check()
+        Task { await performCheck(manual: false) }
     }
 
-    /// Force check for updates now.
-    func check() {
-        Task {
-            await performCheck()
-        }
+    /// Manual "Check for Updates" — always runs, ignores throttle.
+    func checkNow() {
+        Task { await performCheck(manual: true) }
     }
 
-    private func performCheck() async {
+    /// Dismiss the banner for the currently available version.
+    func dismissBanner() {
+        dismissedVersion = availableVersion
+    }
+
+    // MARK: - Implementation
+
+    private func performCheck(manual: Bool) async {
+        state = .checking
+
         let urlString = "https://api.github.com/repos/\(Self.repoOwner)/\(Self.repoName)/releases/latest"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else {
+            state = .failed("Invalid update URL")
+            return
+        }
 
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -53,38 +103,46 @@ final class UpdateChecker {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else { return }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                state = .failed("No response from GitHub")
+                return
+            }
+            guard httpResponse.statusCode == 200 else {
+                state = .failed("GitHub returned \(httpResponse.statusCode)")
+                return
+            }
 
             let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-            let tagVersion = release.tagName.hasPrefix("v")
-                ? String(release.tagName.dropFirst())
-                : release.tagName
+            let remoteVersion = Self.normalize(release.tagName)
 
             lastCheckDate = Date()
-            latestVersion = tagVersion
-            downloadURL = release.htmlURL
+
+            if Self.isNewer(remoteVersion, than: Self.currentVersion) {
+                state = .updateAvailable(version: remoteVersion, url: release.htmlURL)
+            } else {
+                state = .upToDate
+            }
         } catch {
-            // Silently fail — update check is non-critical
+            state = .failed(manual ? error.localizedDescription : "Update check failed")
         }
     }
 
-    /// Compare semantic versions: returns true if `version` is newer than current.
-    private func isNewer(_ version: String) -> Bool {
-        let current = Self.currentVersion.split(separator: ".").compactMap { Int($0) }
-        let remote = version.split(separator: ".").compactMap { Int($0) }
+    /// Strip a leading "v" from a tag name (e.g. "v1.2.0" -> "1.2.0").
+    private static func normalize(_ tag: String) -> String {
+        tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+    }
 
-        for i in 0..<max(current.count, remote.count) {
-            let c = i < current.count ? current[i] : 0
-            let r = i < remote.count ? remote[i] : 0
-            if r > c { return true }
-            if r < c { return false }
+    /// Semantic version comparison: is `lhs` strictly newer than `rhs`?
+    static func isNewer(_ lhs: String, than rhs: String) -> Bool {
+        let a = lhs.split(separator: ".").compactMap { Int($0) }
+        let b = rhs.split(separator: ".").compactMap { Int($0) }
+        for i in 0..<max(a.count, b.count) {
+            let l = i < a.count ? a[i] : 0
+            let r = i < b.count ? b[i] : 0
+            if l > r { return true }
+            if l < r { return false }
         }
         return false
-    }
-
-    func dismiss() {
-        dismissedVersion = latestVersion
     }
 }
 

@@ -3,6 +3,7 @@ import AppKit
 
 struct SettingsView: View {
     @Bindable var settings: SettingsStore
+    var updateChecker: UpdateChecker
 
     var body: some View {
         Form {
@@ -10,10 +11,11 @@ struct SettingsView: View {
             notificationSection
             executableSection
             loginSection
+            updatesSection
             aboutSection
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 380)
+        .frame(width: 400, height: 460)
         .padding()
     }
 
@@ -87,10 +89,68 @@ struct SettingsView: View {
         }
     }
 
+    private var updatesSection: some View {
+        Section("Updates") {
+            Toggle("Automatically check for updates", isOn: Binding(
+                get: { updateChecker.autoCheckEnabled },
+                set: { updateChecker.autoCheckEnabled = $0 }
+            ))
+
+            HStack {
+                Button("Check for Updates") {
+                    updateChecker.checkNow()
+                }
+                .disabled(updateChecker.state == .checking)
+
+                Spacer()
+
+                updateStatusView
+            }
+
+            if case let .updateAvailable(version, url) = updateChecker.state,
+               let downloadURL = URL(string: url) {
+                HStack {
+                    Text("Version \(version) is available")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Link("Download", destination: downloadURL)
+                        .font(.caption)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var updateStatusView: some View {
+        switch updateChecker.state {
+        case .idle:
+            EmptyView()
+        case .checking:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Checking…").font(.caption).foregroundStyle(.secondary)
+            }
+        case .upToDate:
+            Label("Up to date", systemImage: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case .updateAvailable:
+            Label("Update available", systemImage: "arrow.down.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.blue)
+        case let .failed(message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+        }
+    }
+
     private var aboutSection: some View {
         Section("About") {
-            LabeledContent("App", value: "KiroMeter")
-            LabeledContent("Version", value: "1.0.0")
+            LabeledContent("App", value: AppInfo.name)
+            LabeledContent("Version", value: "\(AppInfo.version) (\(AppInfo.build))")
         }
     }
 
