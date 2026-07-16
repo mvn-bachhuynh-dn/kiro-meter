@@ -31,7 +31,29 @@ You can also set a custom path in Settings.
 
 ## Download & Install (no build required)
 
-Most users don't need to build from source — just grab the latest release:
+Most users don't need to build from source — just grab the latest release.
+
+### Option A — One command (recommended)
+
+Paste this into Terminal. It downloads the latest release, installs it to
+`/Applications`, removes the quarantine flag, and launches the app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mvn-bachhuynh-dn/kiro-meter/main/scripts/install.sh | bash
+```
+
+> Piping a script into `bash` runs it immediately. If you'd rather inspect it
+> first, open [`scripts/install.sh`](scripts/install.sh), or download and run it
+> manually:
+>
+> ```bash
+> curl -fsSLO https://raw.githubusercontent.com/mvn-bachhuynh-dn/kiro-meter/main/scripts/install.sh
+> bash install.sh
+> ```
+
+Re-running the script also **updates** KiroMeter to the latest release.
+
+### Option B — Manual
 
 1. Go to the [**Releases** page](https://github.com/mvn-bachhuynh-dn/kiro-meter/releases/latest)
 2. Download `KiroMeter-macOS.zip`
@@ -69,9 +91,17 @@ run it once, right after moving the app to `/Applications`.
 
 KiroMeter checks GitHub for new versions automatically (toggleable in Settings →
 Updates) and can check on demand via **Settings → Check for Updates**. When an
-update is available it shows a banner with a download link. Since the app is
-unsigned, updating is manual: download the new release, replace the app in
-`/Applications`, and run `xattr -cr /Applications/KiroMeter.app` again.
+update is available it shows a banner with a download link.
+
+Since the app is unsigned, updating is manual. The easiest way is to re-run the
+install script, which grabs the latest release and replaces the app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mvn-bachhuynh-dn/kiro-meter/main/scripts/install.sh | bash
+```
+
+Or do it by hand: download the new release, replace the app in `/Applications`,
+and run `xattr -cr /Applications/KiroMeter.app` again.
 
 ## Build & Run
 

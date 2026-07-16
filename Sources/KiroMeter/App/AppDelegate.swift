@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let thresholdEvaluator = ThresholdEvaluator()
     private let updateChecker = UpdateChecker()
     private var observationTask: Task<Void, Never>?
+    private var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
@@ -85,23 +86,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func togglePopover() {
-        guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            closePopover()
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            showPopover()
+        }
+    }
+
+    private func showPopover() {
+        guard let button = statusItem.button else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Dismiss when the user clicks anywhere outside the app (other apps,
+        // desktop, Finder). Global monitors only fire for out-of-process events,
+        // so clicking the status item itself is unaffected — avoiding the
+        // re-toggle glitch that .transient behavior can cause.
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            self?.closePopover()
+        }
+    }
+
+    private func closePopover() {
+        popover.performClose(nil)
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
         }
     }
 
     @objc private func appDidResignActive() {
-        if popover.isShown {
-            popover.performClose(nil)
-        }
+        // Fires when switching to another app (e.g. Cmd-Tab).
+        closePopover()
     }
 
     @objc private func openSettings() {
-        if popover.isShown { popover.performClose(nil) }
+        if popover.isShown { closePopover() }
 
         if let window = settingsWindow {
             window.makeKeyAndOrderFront(nil)
