@@ -75,6 +75,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
+
+        // Sleep/wake resilience: closing the lid can wedge an in-flight
+        // kiro-cli fetch (dead network socket after wake). Abort on sleep and
+        // start a clean refresh on wake so the UI never gets stuck loading.
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceCenter.addObserver(
+            self,
+            selector: #selector(systemWillSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+        workspaceCenter.addObserver(
+            self,
+            selector: #selector(systemDidWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
 
     private func startScheduler() {
@@ -121,6 +138,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func appDidResignActive() {
         // Fires when switching to another app (e.g. Cmd-Tab).
         closePopover()
+    }
+
+    @objc private func systemWillSleep() {
+        // Stop the timer and abort any in-flight fetch. Cancelling the scheduler
+        // task propagates cancellation into a scheduled fetch (force-killing the
+        // kiro-cli process); cancelInFlight() handles a manual refresh.
+        scheduler.stop()
+        viewModel.cancelInFlight()
+    }
+
+    @objc private func systemDidWake() {
+        // Restart the timer and kick a fresh fetch now that networking is back.
+        startScheduler()
+        viewModel.refresh()
+        scheduler.recordManualRefresh()
+        updateStatusItemDisplay()
     }
 
     @objc private func openSettings() {

@@ -38,6 +38,13 @@ final class UsageViewModel {
         }
     }
 
+    /// Cancel an in-flight fetch (e.g. before the machine sleeps). The fetch's
+    /// `defer` resets `isLoading`, so a fresh refresh can start again on wake.
+    func cancelInFlight() {
+        fetchTask?.cancel()
+        fetchTask = nil
+    }
+
     /// Async fetch - called from Task or scheduler.
     func performFetch() async {
         guard !isLoading else { return }

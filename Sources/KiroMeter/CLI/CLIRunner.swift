@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Result from running a CLI command.
 public struct CLIRunResult: Sendable {
@@ -24,6 +25,16 @@ public enum CLIRunError: Error, Sendable {
 }
 
 /// Runs kiro-cli asynchronously with proper timeout and cancellation support.
+///
+/// Design notes (see `.kiro/steering/macos-appkit.md` — sleep/wake resilience):
+/// - Output is drained with async `readabilityHandler`s into a lock-protected
+///   buffer. We NEVER block a Swift cooperative thread on a synchronous
+///   `readDataToEndOfFile()`. A child that keeps the pipe write-end open after a
+///   sleep/wake cycle used to wedge that read forever, which in turn wedged the
+///   enclosing task group (it must drain all child tasks) and left the UI's
+///   `isLoading` stuck `true` — a permanent spinner with no way to recover.
+/// - We wait for the process via `terminationHandler` (non-blocking) and, on
+///   timeout or cancellation, force-kill it so that wait always resolves.
 public actor CLIRunner {
     private let executablePath: String
     private let overallTimeout: Duration
@@ -57,57 +68,75 @@ public actor CLIRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        // Drain both pipes asynchronously so a wedged child can never block a
+        // cooperative thread on a synchronous read.
+        let outReader = PipeReader(stdoutPipe.fileHandleForReading)
+        let errReader = PipeReader(stderrPipe.fileHandleForReading)
+
         // Start process
         do {
             try process.run()
         } catch {
+            outReader.cancel()
+            errReader.cancel()
             throw CLIRunError.executableNotFound
         }
 
-        // Wait with timeout
-        let result: CLIRunResult
+        // Wait for exit or timeout, whichever comes first. `onCancel` and the
+        // timeout branch both force-kill the process so `waitForExit` always
+        // resolves and the task group can drain — no deadlock.
+        let timedOut: Bool
         do {
-            result = try await withThrowingTaskGroup(of: CLIRunResult.self) { group in
-                // Task 1: Wait for process completion
-                group.addTask {
-                    return await self.waitForProcess(
-                        process: process,
-                        stdoutPipe: stdoutPipe,
-                        stderrPipe: stderrPipe
-                    )
-                }
-
-                // Task 2: Overall timeout
-                group.addTask {
-                    try await Task.sleep(for: self.overallTimeout)
-                    throw CLIRunError.timeout
-                }
-
-                // Return first completed task
-                let firstResult = try await group.next()!
-                group.cancelAll()
-
-                // Ensure process is terminated if timed out
-                if process.isRunning {
-                    process.terminate()
-                    // Give it a moment to exit cleanly
-                    try? await Task.sleep(for: .milliseconds(100))
-                    if process.isRunning {
-                        process.interrupt()
+            timedOut = try await withTaskCancellationHandler {
+                try await withThrowingTaskGroup(of: Bool.self) { group in
+                    group.addTask {
+                        await CLIRunner.waitForExit(process)
+                        return false
                     }
+                    group.addTask {
+                        try await Task.sleep(for: self.overallTimeout)
+                        return true
+                    }
+                    let first = try await group.next()!
+                    if first {
+                        // Timed out: kill so the pending waitForExit task can finish.
+                        CLIRunner.killProcessTree(process)
+                    }
+                    group.cancelAll()
+                    return first
                 }
-
-                return firstResult
+            } onCancel: {
+                CLIRunner.killProcessTree(process)
             }
         } catch is CancellationError {
-            terminateProcess(process)
+            CLIRunner.killProcessTree(process)
+            outReader.cancel()
+            errReader.cancel()
             throw CancellationError()
-        } catch {
-            terminateProcess(process)
-            throw error
         }
 
-        return result
+        if timedOut {
+            outReader.cancel()
+            errReader.cancel()
+            throw CLIRunError.timeout
+        }
+
+        // Success path: process exited on its own. Wait (with a bounded grace)
+        // for the pipes to reach EOF so we capture the complete output, then
+        // detach the handlers.
+        await CLIRunner.drainWithGrace(outReader, errReader, grace: .seconds(2))
+        outReader.cancel()
+        errReader.cancel()
+
+        let stdout = String(data: outReader.data(), encoding: .utf8) ?? ""
+        let stderr = String(data: errReader.data(), encoding: .utf8) ?? ""
+
+        return CLIRunResult(
+            stdout: stdout,
+            stderr: stderr,
+            exitCode: process.terminationStatus,
+            timedOut: false
+        )
     }
 
     /// Fetch usage data from kiro-cli.
@@ -133,33 +162,143 @@ public actor CLIRunner {
         return try await run(arguments: fallbackArgs)
     }
 
-    // MARK: - Private
+    // MARK: - Private helpers
 
-    private func waitForProcess(
-        process: Process,
-        stdoutPipe: Pipe,
-        stderrPipe: Pipe
-    ) async -> CLIRunResult {
-        // Read output in background
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-        return CLIRunResult(
-            stdout: stdout,
-            stderr: stderr,
-            exitCode: process.terminationStatus,
-            timedOut: false
-        )
+    /// Suspends until the process terminates. Non-blocking: relies on
+    /// `terminationHandler` rather than `waitUntilExit()`. Safe to call when the
+    /// process has already exited.
+    private nonisolated static func waitForExit(_ process: Process) async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            let resumer = ResumeOnce { cont.resume() }
+            process.terminationHandler = { _ in resumer.fire() }
+            // Guard against the race where the process exited before the handler
+            // was installed (terminationHandler would then never fire).
+            if !process.isRunning {
+                resumer.fire()
+            }
+        }
     }
 
-    private nonisolated func terminateProcess(_ process: Process) {
-        if process.isRunning {
-            process.terminate()
+    /// Send SIGTERM then SIGKILL so the process is guaranteed to die and its
+    /// `terminationHandler` fires. Idempotent / safe if already dead.
+    private nonisolated static func killProcessTree(_ process: Process) {
+        guard process.isRunning else { return }
+        let pid = process.processIdentifier
+        process.terminate()          // SIGTERM (graceful)
+        if pid > 0 {
+            kill(pid, SIGKILL)       // force — cannot be ignored
+        }
+    }
+
+    /// Wait for both readers to reach EOF, but no longer than `grace`, so a
+    /// lingering grandchild holding the pipe open can't stall the success path.
+    private nonisolated static func drainWithGrace(
+        _ out: PipeReader,
+        _ err: PipeReader,
+        grace: Duration
+    ) async {
+        _ = try? await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await out.waitForEOF()
+                await err.waitForEOF()
+            }
+            group.addTask {
+                try await Task.sleep(for: grace)
+            }
+            _ = try await group.next()
+            // Resume any pending EOF waiters so the group can drain even if EOF
+            // never actually arrives.
+            out.cancel()
+            err.cancel()
+            group.cancelAll()
+        }
+    }
+}
+
+/// One-shot resume guard so a `CheckedContinuation` is never resumed twice.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+    private let action: @Sendable () -> Void
+
+    init(_ action: @escaping @Sendable () -> Void) {
+        self.action = action
+    }
+
+    func fire() {
+        lock.lock()
+        if fired { lock.unlock(); return }
+        fired = true
+        lock.unlock()
+        action()
+    }
+}
+
+/// Asynchronously drains a `FileHandle` into a lock-protected buffer using a
+/// `readabilityHandler`. Never blocks a cooperative thread. Exposes EOF as an
+/// awaitable so callers can wait for complete output without risking a hang.
+private final class PipeReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private let handle: FileHandle
+    private var buffer = Data()
+    private var finished = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(_ handle: FileHandle) {
+        self.handle = handle
+        handle.readabilityHandler = { [weak self] h in
+            guard let self else { return }
+            let chunk = h.availableData
+            if chunk.isEmpty {
+                // EOF: all write-ends closed.
+                self.finish(detach: h)
+            } else {
+                self.lock.lock()
+                self.buffer.append(chunk)
+                self.lock.unlock()
+            }
+        }
+    }
+
+    /// The bytes captured so far.
+    func data() -> Data {
+        lock.lock(); defer { lock.unlock() }
+        return buffer
+    }
+
+    /// Suspends until EOF is reached (or `cancel()` is called).
+    func waitForEOF() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if finished {
+                lock.unlock()
+                cont.resume()
+                return
+            }
+            waiters.append(cont)
+            lock.unlock()
+        }
+    }
+
+    /// Detach the handler and resume any waiters. Idempotent.
+    func cancel() {
+        finish(detach: handle)
+    }
+
+    private func finish(detach handle: FileHandle) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let pending = waiters
+        waiters = []
+        lock.unlock()
+
+        handle.readabilityHandler = nil
+        for cont in pending {
+            cont.resume()
         }
     }
 }
