@@ -11,6 +11,9 @@ macOS menu bar app that displays your Kiro credit usage percentage.
 
 - **Menu bar display** — Shows remaining credit percentage (e.g., "85%")
 - **Click for details** — Plan name, credits used/total/remaining, reset date, bonus credits
+- **Account info** — Email, region, and Identity Center start URL
+- **Privacy monitor** — Real-time status of telemetry, content sharing, and admin prompt logging
+- **Prompt Logging detection** — Detects if your org admin has enabled prompt logging (requires Kiro IDE)
 - **Auto-refresh** — Configurable interval: 1, 5, 15, or 30 minutes
 - **Notifications** — Alert when credits drop below configurable threshold
 - **Critical state** — Red warning icon when credits are exhausted
@@ -21,6 +24,7 @@ macOS menu bar app that displays your Kiro credit usage percentage.
 
 1. **Kiro CLI** installed — [Download from kiro.dev](https://kiro.dev)
 2. **Logged in** — Run `kiro-cli login` in Terminal
+3. *(Optional)* **Kiro IDE** installed — Enables admin Prompt Logging detection
 
 The app auto-detects `kiro-cli` at:
 - `/Applications/Kiro CLI.app/Contents/MacOS/kiro-cli`
@@ -118,6 +122,36 @@ make test
 
 > **Note:** Requires Xcode.app installed (for SDK frameworks).
 
+## Privacy & Security Monitor
+
+KiroMeter shows the privacy status of your Kiro account in the popover:
+
+| Setting | Source | What it means |
+|---------|--------|---------------|
+| **Telemetry** | `kiro-cli settings` | Usage metrics sent to AWS |
+| **Content Sharing** | `kiro-cli settings` | Code snippets shared for service improvement (Free tier only) |
+| **Prompt Logging** | Kiro IDE logs | Admin-level: all prompts & responses logged to org S3 bucket |
+
+### Prompt Logging detection
+
+This is the most important privacy indicator. When your org admin enables Prompt
+Logging on the Kiro Admin console, **all your prompts and AI responses are recorded**.
+
+KiroMeter detects this by reading the Kiro IDE's `EnterpriseSettingsManager` log:
+
+```
+~/Library/Application Support/Kiro/logs/<session>/window*/exthost/kiro.kiroAgent/Kiro Logs.log
+```
+
+**Requirements:**
+- Kiro IDE must be installed and opened at least once (to generate log files)
+- After admin changes the setting, reopen Kiro IDE to refresh the status
+
+**Status indicators:**
+- 🟢 **OFF** — Prompt logging is disabled, your prompts are not recorded
+- 🟠 **ON** — Your prompts ARE being logged to your org's S3 bucket
+- 🔘 **Unknown** — Kiro IDE not found; install and open it once to detect
+
 ## How It Works
 
 KiroMeter calls `kiro-cli chat --classic --no-interactive --agent bare "/usage"` to fetch your usage data, parses the output (stripping ANSI codes), and displays the remaining percentage on your menu bar.
@@ -134,10 +168,13 @@ NSStatusItem (menu bar) → NSPopover (SwiftUI detail view)
                         → Settings window
 AppDelegate
 ├── UsageViewModel (@MainActor, @Observable)
-│   └── UsageService (actor)
-│       ├── ExecutableResolver (finds kiro-cli)
-│       ├── CLIRunner (async process with timeout)
-│       └── UsageParser (regex-based output parser)
+│   ├── UsageService (actor)
+│   │   ├── ExecutableResolver (finds kiro-cli)
+│   │   ├── CLIRunner (async process with timeout)
+│   │   └── UsageParser (regex-based output parser)
+│   └── AccountService (actor)
+│       ├── AccountParser (parses whoami + settings JSON)
+│       └── IDELogParser (reads Kiro IDE logs for enterprise policies)
 ├── RefreshScheduler (periodic timer)
 ├── ThresholdEvaluator → NotificationClient
 └── SettingsStore (UserDefaults)

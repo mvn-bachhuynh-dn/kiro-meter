@@ -9,7 +9,7 @@ enum AppInfo {
     /// Used only when running outside an app bundle (e.g. `swift run`).
     /// Keep in sync with `CFBundleShortVersionString` in scripts/bundle.sh
     /// and .github/workflows/release.yml.
-    static let devFallbackVersion = "1.3.0"
+    static let devFallbackVersion = "1.3.1"
 
     static let name = "KiroMeter"
 

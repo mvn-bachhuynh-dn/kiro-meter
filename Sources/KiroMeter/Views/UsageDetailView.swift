@@ -179,84 +179,96 @@ struct UsageDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
+            privacyRow(label: "Telemetry", enabled: privacy.telemetryEnabled,
+                       info: "Usage metrics sent to AWS for analytics.")
+
+            privacyRow(label: "Content Sharing", enabled: privacy.promptLoggingEnabled,
+                       info: "Code snippets shared with AWS for service improvement. Only affects Free tier.")
+
+            // Prompt Logging — from Kiro IDE logs
+            promptLoggingRow
+        }
+    }
+
+    /// Prompt Logging row with inline info button.
+    @ViewBuilder
+    private var promptLoggingRow: some View {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text("Telemetry:")
+                Text("Prompt Logging:")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                privacyBadge(enabled: privacy.telemetryEnabled)
+                promptLoggingBadge
             }
 
-            HStack(spacing: 6) {
-                Text("Content Sharing:")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                privacyBadge(enabled: privacy.promptLoggingEnabled)
-            }
-
-            // Admin Prompt Logging — from Kiro IDE logs
-            HStack(spacing: 6) {
-                Text("Admin Logging:")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                adminLoggingBadge
-            }
-            .help(adminLoggingTooltip)
+            // Always show explanation text below the badge
+            Text(promptLoggingDescription)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
 
             // Guidance if IDE not available
             if !viewModel.isIDEAvailable {
-                ideGuidanceView
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.right.circle")
+                        .font(.system(size: 9))
+                    Text("Install & open Kiro IDE once to detect")
+                        .font(.system(size: 9))
+                }
+                .foregroundStyle(.blue)
+                .padding(.top, 1)
+            } else if viewModel.enterprisePolicies == nil {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 9))
+                    Text("Reopen Kiro IDE to refresh status")
+                        .font(.system(size: 9))
+                }
+                .foregroundStyle(.blue)
+                .padding(.top, 1)
             }
         }
     }
 
-    /// Admin logging badge based on enterprise policies from IDE log.
+    /// Badge for prompt logging based on enterprise policies.
     @ViewBuilder
-    private var adminLoggingBadge: some View {
+    private var promptLoggingBadge: some View {
         if let policies = viewModel.enterprisePolicies {
             privacyBadge(enabled: policies.promptLogging)
-        } else if viewModel.isIDEAvailable {
-            // IDE exists but no policies found (maybe old log)
-            HStack(spacing: 2) {
-                Image(systemName: "arrow.clockwise.circle.fill")
-                    .font(.caption2)
-                Text("Reopen IDE")
-                    .font(.caption2.bold())
-            }
-            .foregroundStyle(.secondary)
         } else {
-            // No IDE installed
             HStack(spacing: 2) {
                 Image(systemName: "questionmark.circle.fill")
                     .font(.caption2)
-                Text("IDE Required")
+                Text("Unknown")
                     .font(.caption2.bold())
             }
             .foregroundStyle(.secondary)
         }
     }
 
-    private var adminLoggingTooltip: String {
+    /// Description text for prompt logging status.
+    private var promptLoggingDescription: String {
         if let policies = viewModel.enterprisePolicies {
             return policies.promptLogging
-                ? "Admin has ENABLED prompt logging. All prompts and responses are being logged to an S3 bucket."
-                : "Admin prompt logging is disabled. Prompts are not being logged."
+                ? "Admin has enabled logging. All your prompts and AI responses are recorded to an S3 bucket controlled by your organization."
+                : "Admin prompt logging is off. Your prompts are not being recorded."
         }
-        return "Open Kiro IDE at least once to detect admin prompt logging status."
+        return "Detects if your admin logs all prompts & responses. Requires Kiro IDE to have been opened at least once."
     }
 
-    /// Guidance for users who don't have Kiro IDE or need to refresh.
-    private var ideGuidanceView: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "info.circle")
+    /// A single privacy row with label, badge, and hover info.
+    private func privacyRow(label: String, enabled: Bool, info: String) -> some View {
+        HStack(spacing: 6) {
+            Text("\(label):")
                 .font(.caption2)
-            Text("Open Kiro IDE once to detect admin logging")
-                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            privacyBadge(enabled: enabled)
         }
-        .foregroundStyle(.secondary)
-        .padding(.top, 2)
+        .help(info)
     }
 
-    /// Shield icon depends on overall privacy state including admin logging.
+    /// Shield icon depends on overall privacy state including prompt logging.
     private var privacyShieldIcon: String {
         if let policies = viewModel.enterprisePolicies, policies.promptLogging {
             return "exclamationmark.shield.fill"
