@@ -187,11 +187,19 @@ struct UsageDetailView: View {
             }
 
             HStack(spacing: 6) {
-                Text("Prompt Logging:")
+                Text("Content Sharing:")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 privacyBadge(enabled: privacy.promptLoggingEnabled)
             }
+
+            HStack(spacing: 6) {
+                Text("Admin Logging:")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                unknownBadge
+            }
+            .help("Admin-level prompt logging is managed on Kiro Admin console and cannot be checked locally.")
         }
     }
 
@@ -203,6 +211,16 @@ struct UsageDetailView: View {
                 .font(.caption2.bold())
         }
         .foregroundStyle(enabled ? .orange : .green)
+    }
+
+    private var unknownBadge: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "questionmark.circle.fill")
+                .font(.caption2)
+            Text("Check Admin")
+                .font(.caption2.bold())
+        }
+        .foregroundStyle(.secondary)
     }
 
     private var errorSection: some View {
