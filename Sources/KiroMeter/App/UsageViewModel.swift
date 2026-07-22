@@ -20,7 +20,11 @@ final class UsageViewModel {
     // Account & privacy info
     private(set) var accountInfo: AccountInfo?
     private(set) var privacySettings: PrivacySettings?
+    private(set) var enterprisePolicies: EnterprisePolicies?
     private(set) var accountError: String?
+
+    /// Whether Kiro IDE is available (logs exist) for enterprise policy detection.
+    var isIDEAvailable: Bool = false
 
     /// Whether the current snapshot is stale (kept from a previous successful fetch).
     var isStale: Bool {
@@ -94,6 +98,10 @@ final class UsageViewModel {
         } catch {
             self.accountError = error.localizedDescription
         }
+
+        // Fetch enterprise policies from IDE log (sync file read, fast)
+        self.isIDEAvailable = await accountService.isIDEAvailable
+        self.enterprisePolicies = await accountService.fetchEnterprisePolicies()
     }
 
     /// Get diagnostics about the CLI executable.

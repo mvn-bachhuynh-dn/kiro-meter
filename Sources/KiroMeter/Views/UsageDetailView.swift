@@ -171,8 +171,8 @@ struct UsageDetailView: View {
     private func privacySection(_ privacy: PrivacySettings) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Image(systemName: privacy.isFullyPrivate ? "lock.shield.fill" : "exclamationmark.shield.fill")
-                    .foregroundStyle(privacy.isFullyPrivate ? .green : .orange)
+                Image(systemName: privacyShieldIcon)
+                    .foregroundStyle(privacyShieldColor)
                     .font(.caption)
                 Text("Privacy")
                     .font(.caption.bold())
@@ -193,14 +193,89 @@ struct UsageDetailView: View {
                 privacyBadge(enabled: privacy.promptLoggingEnabled)
             }
 
+            // Admin Prompt Logging — from Kiro IDE logs
             HStack(spacing: 6) {
                 Text("Admin Logging:")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                unknownBadge
+                adminLoggingBadge
             }
-            .help("Admin-level prompt logging is managed on Kiro Admin console and cannot be checked locally.")
+            .help(adminLoggingTooltip)
+
+            // Guidance if IDE not available
+            if !viewModel.isIDEAvailable {
+                ideGuidanceView
+            }
         }
+    }
+
+    /// Admin logging badge based on enterprise policies from IDE log.
+    @ViewBuilder
+    private var adminLoggingBadge: some View {
+        if let policies = viewModel.enterprisePolicies {
+            privacyBadge(enabled: policies.promptLogging)
+        } else if viewModel.isIDEAvailable {
+            // IDE exists but no policies found (maybe old log)
+            HStack(spacing: 2) {
+                Image(systemName: "arrow.clockwise.circle.fill")
+                    .font(.caption2)
+                Text("Reopen IDE")
+                    .font(.caption2.bold())
+            }
+            .foregroundStyle(.secondary)
+        } else {
+            // No IDE installed
+            HStack(spacing: 2) {
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.caption2)
+                Text("IDE Required")
+                    .font(.caption2.bold())
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var adminLoggingTooltip: String {
+        if let policies = viewModel.enterprisePolicies {
+            return policies.promptLogging
+                ? "Admin has ENABLED prompt logging. All prompts and responses are being logged to an S3 bucket."
+                : "Admin prompt logging is disabled. Prompts are not being logged."
+        }
+        return "Open Kiro IDE at least once to detect admin prompt logging status."
+    }
+
+    /// Guidance for users who don't have Kiro IDE or need to refresh.
+    private var ideGuidanceView: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "info.circle")
+                .font(.caption2)
+            Text("Open Kiro IDE once to detect admin logging")
+                .font(.caption2)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.top, 2)
+    }
+
+    /// Shield icon depends on overall privacy state including admin logging.
+    private var privacyShieldIcon: String {
+        if let policies = viewModel.enterprisePolicies, policies.promptLogging {
+            return "exclamationmark.shield.fill"
+        }
+        if let privacy = viewModel.privacySettings, !privacy.isFullyPrivate {
+            return "exclamationmark.shield.fill"
+        }
+        return "lock.shield.fill"
+    }
+
+    /// Shield color depends on overall privacy state.
+    private var privacyShieldColor: Color {
+        if let policies = viewModel.enterprisePolicies, policies.promptLogging {
+            return .red
+        }
+        if let privacy = viewModel.privacySettings, !privacy.isFullyPrivate {
+            return .orange
+        }
+        return .green
     }
 
     private func privacyBadge(enabled: Bool) -> some View {
@@ -211,16 +286,6 @@ struct UsageDetailView: View {
                 .font(.caption2.bold())
         }
         .foregroundStyle(enabled ? .orange : .green)
-    }
-
-    private var unknownBadge: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "questionmark.circle.fill")
-                .font(.caption2)
-            Text("Check Admin")
-                .font(.caption2.bold())
-        }
-        .foregroundStyle(.secondary)
     }
 
     private var errorSection: some View {

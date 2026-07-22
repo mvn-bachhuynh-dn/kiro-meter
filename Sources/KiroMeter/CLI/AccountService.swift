@@ -35,6 +35,17 @@ public actor AccountService {
         return AccountParser.parseSettings(output)
     }
 
+    /// Fetch enterprise policies from Kiro IDE log files (non-blocking file read).
+    /// Returns nil if Kiro IDE has never been opened.
+    public func fetchEnterprisePolicies() -> EnterprisePolicies? {
+        IDELogParser.parseLatestPolicies()
+    }
+
+    /// Whether Kiro IDE logs are available on this machine.
+    public var isIDEAvailable: Bool {
+        IDELogParser.isIDELogAvailable
+    }
+
     /// Force re-resolution of executable path (e.g. after settings change).
     public func resetExecutablePath(customPath: String? = nil) {
         resolvedPath = nil
