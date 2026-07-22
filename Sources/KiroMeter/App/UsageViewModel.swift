@@ -17,16 +17,23 @@ final class UsageViewModel {
     private(set) var isLoading: Bool = false
     private(set) var lastFetchedAt: Date?
 
+    // Account & privacy info
+    private(set) var accountInfo: AccountInfo?
+    private(set) var privacySettings: PrivacySettings?
+    private(set) var accountError: String?
+
     /// Whether the current snapshot is stale (kept from a previous successful fetch).
     var isStale: Bool {
         lastError != nil && snapshot != nil
     }
 
     private let usageService: UsageService
+    private let accountService: AccountService
     private var fetchTask: Task<Void, Never>?
 
     init(customExecutablePath: String? = nil) {
         self.usageService = UsageService(customExecutablePath: customExecutablePath)
+        self.accountService = AccountService(customExecutablePath: customExecutablePath)
     }
 
     /// Trigger a refresh. Prevents concurrent refreshes.
@@ -35,6 +42,7 @@ final class UsageViewModel {
         fetchTask?.cancel()
         fetchTask = Task {
             await performFetch()
+            await fetchAccountAndPrivacy()
         }
     }
 
@@ -62,6 +70,29 @@ final class UsageViewModel {
             // Keep last-known-good snapshot, record error
             self.lastError = error.localizedDescription
             self.lastFetchedAt = Date()
+        }
+    }
+
+    /// Fetch account identity and privacy settings (non-blocking, runs in parallel concept).
+    func fetchAccountAndPrivacy() async {
+        do {
+            async let accountResult = accountService.fetchAccountInfo()
+            async let privacyResult = accountService.fetchPrivacySettings()
+
+            let account = try await accountResult
+            let privacy = try await privacyResult
+
+            if let account {
+                self.accountInfo = account
+            }
+            if let privacy {
+                self.privacySettings = privacy
+            }
+            self.accountError = nil
+        } catch is CancellationError {
+            // Silently ignore
+        } catch {
+            self.accountError = error.localizedDescription
         }
     }
 

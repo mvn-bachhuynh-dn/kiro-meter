@@ -13,6 +13,18 @@ struct UsageDetailView: View {
                 updateBanner
             }
 
+            // Account info section
+            if let accountInfo = viewModel.accountInfo {
+                Divider()
+                accountSection(accountInfo)
+            }
+
+            // Privacy status section
+            if let privacy = viewModel.privacySettings {
+                Divider()
+                privacySection(privacy)
+            }
+
             Divider()
             if let snapshot = viewModel.snapshot {
                 creditsSection(snapshot)
@@ -108,6 +120,89 @@ struct UsageDetailView: View {
             Text(label)
                 .font(.caption)
         }
+    }
+
+    @ViewBuilder
+    private func accountSection(_ account: AccountInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: "person.circle.fill")
+                    .foregroundStyle(.blue)
+                    .font(.caption)
+                Text("Account")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+
+            if let email = account.email {
+                HStack(spacing: 4) {
+                    Text(email)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            if let region = account.displayRegion {
+                HStack(spacing: 4) {
+                    Text("Region:")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(region)
+                        .font(.caption2.monospaced())
+                }
+            }
+
+            if let host = account.startURLHost {
+                HStack(spacing: 4) {
+                    Text("IdC:")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(host)
+                        .font(.caption2.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func privacySection(_ privacy: PrivacySettings) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: privacy.isFullyPrivate ? "lock.shield.fill" : "exclamationmark.shield.fill")
+                    .foregroundStyle(privacy.isFullyPrivate ? .green : .orange)
+                    .font(.caption)
+                Text("Privacy")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                Text("Telemetry:")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                privacyBadge(enabled: privacy.telemetryEnabled)
+            }
+
+            HStack(spacing: 6) {
+                Text("Prompt Logging:")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                privacyBadge(enabled: privacy.promptLoggingEnabled)
+            }
+        }
+    }
+
+    private func privacyBadge(enabled: Bool) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: enabled ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .font(.caption2)
+            Text(enabled ? "ON" : "OFF")
+                .font(.caption2.bold())
+        }
+        .foregroundStyle(enabled ? .orange : .green)
     }
 
     private var errorSection: some View {
