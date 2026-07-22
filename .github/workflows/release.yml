@@ -13,6 +13,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Select Xcode 16
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
@@ -46,7 +49,7 @@ jobs:
               <key>CFBundleVersion</key>
               <string>1</string>
               <key>CFBundleShortVersionString</key>
-              <string>1.3.1</string>
+              <string>1.3.2</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>LSMinimumSystemVersion</key>
